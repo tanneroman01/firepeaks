@@ -1,0 +1,20 @@
+paths: 
+  sites: inputs/sites.csv
+  basins: inputs/gagesii_basins.gpkg
+  mtbs: inputs/mtbs_perims_DD.shp
+  event_table: inputs/Full_Attribute_Tabel_992026.csv
+  s01: outputs/01_sites
+  s02: outputs/02_peaks
+  s03: outputs/03_precip 
+  s04: outputs/04_windows
+  s05: outputs/05_metrics 
+
+sites: 
+  area_tolerance: 0.10
+
+fires: 
+  min_burned_pct: 5.0          # fires that get a post-fire search 
+  mask_min_percent: 5.0             # could potentially change what earlier fires are masked from the pre-burned record? 
+  post_fire_yrs: 3               
+  wildfire_only: true               # MTBS records Incid_Type, ensure these are only wildfires
+
