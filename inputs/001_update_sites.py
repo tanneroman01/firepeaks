@@ -88,51 +88,103 @@ def fetch_basin(site, pause=4.6, max_wait=900):
         return f"HTTP {r.status_code}"     # e.g. 404: site not in NLDI, retrying won't help
 
 
+# take the cached files, merge them, and export to a gpkg
+parts = []
+for f in CACHE.glob("*.geojson"):
+    g = gpd.GeoDataFrame.from_features(json.loads(f.read_text())["features"], crs=4269)
+    g["site_no"] = f.stem
+    parts.append(g[["site_no", "geometry"]])
+
+basins = pd.concat(parts, ignore_index=True).to_crs(4326)
+basins["area_sqkm"] = basins.to_crs(5070).area / 1e6
+
+bad = {s: v for s, v in status.items() if v not in ("ok", "cached")}
+print(len(basins), "basins;", len(bad), "failed:", pd.Series(bad).value_counts())
+
+# export file 
+
+basins.to_file(CACHE / "nldi_basins_merged.gpkg", layer = "basins", driver = "GPKG")
 
 
+STATES = r"C:\Users\A02306692\Downloads\PFF\release\Release_repo_in_progress\data\geoBoundaries-USA-ADM1_simplified.geojson"
+states = gpd.read_file(STATES)
+
+WESTERN = ["Washington", "Montana", "Wyoming", "Utah", "Oregon", "Idaho", "Colorado", "Arizona", "New Mexico", "California", "Nevada"]
+states = states[states["shapeName"].isin(WESTERN)]
+states["dissolve_col"] = 0
+sd = states.dissolve(by = "dissolve_col")
+FIRES = r"C:\Users\A02306692\Downloads\PFF\altRREDI\inputs\mtbs_perims_DD.shp"
+fires = gpd.read_file(FIRES)
+sd = sd.to_crs(epsg = 4326)
+fires =fires.to_crs(epsg= 4326)
+# mask fires by western US states 
+fc = fires.clip(mask = sd)
 
 
+# load in basins with gages 
+
+BASINS = r"C:\Users\A02306692\Downloads\nldi_basins\nldi_basins_merged.gpkg"
+basins = gpd.read_file(BASINS)
+
+print(len(basins))
 
 
-
-
-
-
-
-
-
-
-
-
-
-def fire_perimeters_in(esri_polygon, since = SINCE):
-    """Return a GeoJSON of fire perimeters that intersect the delineated basin"""
+def fire_perimeters_in(basins, since = SINCE): 
+    """return a geodataframe of the perims since `since` inside the basins' bounding box"""
+    xmin, ymin, xmax, ymax = basins.total_bounds
     params = {
-        "geometry": esri_polygon,
-        "geometryType": "esriGeometryPolygon",
+        "where": f"attr_FireDiscoveryDateTime >= DATE '{since}'",
+        "geometry": f"{xmin},{ymin},{xmax},{ymax}",
+        "geometryType": "esriGeometryEnvelope",
         "inSR": 4326,
         "spatialRel":"esriSpatialRelIntersects",
-        "outFields": "poly_IncidentName,poly_GISAcres,attr_FireDiscoveryDateTime,poly_PolygonDateTime",
+        "outFields": "OBJECTID,poly_IncidentName,poly_GISAcres,attr_IrwinID,attr_IncidentTypeCategory,attr_POOState,attr_FireDiscoveryDateTime,poly_PolygonDateTime",
+        "orderByFields": "OBJECTID",
         "returnGeometry":"true",
         "outSR":4326,
         "f": "geojson",
     }
-    if since:
-        params["where"] = f"attr_FireDiscoveryDateTime >= DATE '{since}'"
 
-    r = requests.post(NIFC, data = params, timeout= 60)   # POST: a basin polygon is too long for a URL
-    r.raise_for_status()
-    return r.json()   # may hold an "error" key instead of features; the caller checks
+    # the service returns max 2000 records per request, so page through them
+    pages, offset = [], 0
+    while True:
+        r = requests.post(NIFC, data = {**params, "resultOffset": offset}, timeout=120)
+        r.raise_for_status()
+        js = r.json()
+        if "error" in js:   # arcgis can send a 200 with an error in the body
+            raise RuntimeError(js["error"])
+        if not js["features"]:
+            break
+        pages.append(gpd.GeoDataFrame.from_features(js["features"], crs = 4326))
+        offset += len(js["features"])
+
+    perims = pd.concat(pages, ignore_index = True)
+    perims["attr_FireDiscoveryDateTime"] = pd.to_datetime(perims["attr_FireDiscoveryDateTime"], unit = "ms")
+    return perims
+
+perims = fire_perimeters_in(basins)
+print(len(perims), "perimeters in bounding box")
 
 
-def fire_table(fires, basin_geojson):
-    """One row per fire: name, discovery date, acres, and the share of the basin inside the perimeter."""
-    f = gpd.GeoDataFrame.from_features(fires["features"], crs = 4326).to_crs(5070)
-    b = gpd.GeoDataFrame.from_features(basin_geojson["features"], crs = 4326).to_crs(5070).geometry.union_all()
-    f["burned_pct"] = f.geometry.intersection(b).area / b.area * 100
-    f["discovered"] = [datetime.fromtimestamp(ms / 1000, tz = timezone.utc).date() if ms else None
-                       for ms in f["attr_FireDiscoveryDateTime"]]
-    f["label"] = [f"{n} ({d}) - {p:.0f}% of basin burned"
-                  for n, d, p in zip(f["poly_IncidentName"], f["discovered"], f["burned_pct"])]
-    return f.sort_values("burned_pct", ascending = False).reset_index(drop = True)
+# test each fire on its own agaisnt basin, keep every pair where that one fire covers
+# at least 5% of the basin
 
+b = basins[["site_no", "geometry"]].to_crs(EQUAL_AREA)
+b["geometry"] = b.geometry.make_valid()
+b["area_sqkm"] = b.area / 1e6
+
+# every fire-basin pair that touches
+b_idx, f_idx = all_fires.sindex.query(b.geometry, predicate = "intersects")
+pieces = shapely.intersection(b.geometry.values[b_idx], all_fires.geometry.values[f_idx])
+
+pairs = pd.concat([b.iloc[b_idx][["site_no", "area_sqkm"]].reset_index(drop = True),
+                   all_fires.iloc[f_idx].drop(columns = "geometry").reset_index(drop = True)], axis = 1)
+pairs["burned_sqkm"] = shapely.area(pieces) / 1e6
+pairs["pct_burned"] = 100 * pairs["burned_sqkm"] / pairs["area_sqkm"]
+
+# keep pairs where this single fire burned at least MIN_PCT of this basin
+fire_basin_5pct = pairs[pairs["pct_burned"] >= MIN_PCT].sort_values(["site_no", "fire_date"]).reset_index(drop = True)
+
+
+n_fires = fire_basin_5pct.drop_duplicates(["source", "fire_id"]).shape[0]
+print(len(fire_basin_5pct), "fire-basin pairs;", n_fires, "fires;", fire_basin_5pct["site_no"].nunique(), "basins")
