@@ -36,14 +36,11 @@
     """ 
 
 
-
-import numpy as np 
-import pandas as pd 
-import geopandas as gpd 
-import os 
-from pathlib import Path 
 from __future__ import annotations 
-import hashlib, json, urllib.request 
+import numpy as np 
+import pandas as pd  
+from pathlib import Path 
+
 
 
 
@@ -51,14 +48,15 @@ import hashlib, json, urllib.request
 # -------------------------- CONFIG --------------------------------
 PRECIP_MAX_MM = 125.0 # we treat hourly values above this as errors (5 in of rain in an hr is physically possible but sooo unlikely)
 COORD_DIGITS = 4 # AORC spacing is 1/120 deg, so 4 decimals keep cells unique 
-
+WET_MM = 0.1     # precip needed @ AORC resolution to count as wet
+MAX_MIN_FRAC = 0.5   # cells at least half inside the basin can set the Max 
 
 
 #------------------------------FUNCTIONS------------------------------------
 
-def coord_key(lat, lon, ndigits: COORD_DIGITS) -> str: 
+def coord_key(lat, lon, ndigits: int = COORD_DIGITS) -> str: 
     """the lat/lon str used to match a precip column to its weight, round both sides to same # such that eg 40.1 and 40.00001 match"""
-    return f"{round(float(lat)), ndigits):.{ndigits}f}, {round(float(lon), ndigits):.{ndigits}f}"
+    return f"{round(float(lat)), ndigits:.{ndigits}f}, {round(float(lon), ndigits):.{ndigits}f}"
 
 def read_raw_precip(path, date_col: str = "Date", ndigits: int = COORD_DIGITS) -> pd.DataFrame: 
     """read a *_raw_precip.csv into a wide frame, Datetimeindex, one column per cell with the column 
@@ -78,7 +76,7 @@ def read_raw_precip(path, date_col: str = "Date", ndigits: int = COORD_DIGITS) -
 def clean_precip(precip: pd.DataFrame, lo: float = 0.0, hi: float = PRECIP_MAX_MM, 
                  fill: float = 0.0) -> pd.DataFrame: 
     """replace values outside of [lo, hi] and report n replace"""
-    bad = (precip > hi | precip < lo)
+    bad = (precip > hi) | (precip < lo)
     n_bad = len(bad)
     if n_bad: 
         print(f"{len(bad)} values replace outside of [{lo}, {hi}] with {fill}")
@@ -89,7 +87,7 @@ def read_cell_weights(path, lat: str = "POINT_Y", lon: str = "POINT_X", ndigits:
     """read a *points_info.csv and index it by coord_key, keep every column so they can be used for weighting and subsetting"""
     pts = pd.read_csv(path)
     pts.index = [coord_key(a, b, ndigits) for a, b in zip(pts[lat], pts[lon])]
-    if pts.index.duplicated.any(): 
+    if pts.index.duplicated().any(): 
         raise ValueError(f"{path}: duplicated cell coordinates")
     return pts 
  
@@ -98,7 +96,7 @@ def read_cell_weights(path, lat: str = "POINT_Y", lon: str = "POINT_X", ndigits:
 def align_weights(precip: pd.DataFrame, points: pd.DataFrame, weight: str = "weight", strict: bool = True) -> pd.Series: 
     """The weight for each precip column, raise if cell with no weight exists unless strict = False"""
     w = points[weight].reindex(precip.columns)
-    missing = w.index[w.isna()].to_list
+    missing = w.index[w.isna()].to_list()
     if missing: 
         msg = f"{len(missing)} columns out of {len(w)} have no weight"
         if strict: 
@@ -110,27 +108,31 @@ def select_cells(points: pd.DataFrame, col: str = "BHmodhighP", min_value: float
     """cells to keep for a burned-only summary if desired, e.g cells > 50% mod/high severity"""
     return points.index[points[col] >= min_value].to_list()
 
-def summarize(precip: pd.DataFrame, weights: pd.Series, cells: list[str] | None = None) -> pd.DataFrame: 
-    """ per timestep basin summaries of the weighted precip cells (see module docstring for more info on each summary)"""
-    if cells is not None: 
-        keep = [c for c in precip.columns if c not in set(cells)]
-        if not keep:
-            raise ValueError(" no precip cells left after subsetting")
-        precip, weights = precip[keep], weights[keep]
-    wp = precip * weights
-    out = pd.DataFrame(index = precip.index)
-    out["Max"] = wp.max(axis = 1)
-    out["WetAvg"] = wp.mean(axis = 1)
-    out["StormAvg"] = wp.replace(0, np.nan).mean(axis=1).fillna(0)
-    out["Sum"] = wp.sum(axis = 1)
-    # weights of cells with a valid value in this hr, such that NaN drops out of the denominator too
-    w_valid = precip.notna().mul(weights, axis= 1).sum(axis = 1)
-    out["WtdMean"] = out["Sum"] / w.valid.replace(0, np.nan)
-    return out 
+def summarize(precip: pd.DataFrame, weights: pd.Series, wet_mm: float = WET_MM, min_frac: float = MAX_MIN_FRAC,
+              cell_km2: pd.Series | None = None) -> pd.DataFrame: 
+    """ per timestep basin summaries, precip is unweighted depth per cell, weight is the fraction of each cell inside the basin"""
+    w = weights.astype(float)
+    missing = w.index.difference(precip.columns)
+    if len(missing): 
+        raise KeyError(f"{len(missing)} weighted cells have not precip column")
+    p = precip[w.index]
+    wp = p.mul(w, axis= 1)
+    is_wet = p >= WET_MM
+    area_have = p.notna().mul(w, axis = 1).sum(axis=1).replace(0, np.nan)
+    area_wet = is_wet.mul(w, axis= 1).sum(axis= 1)
+    out = pd.DataFrame(index = p.index)
+    out["Max"] = p.loc[:, w >= min_frac].max(axis=1)
+    out["WetAvg"] = wp.sum(axis=) / area_have
+    out["StormAvg"] = wp.where(is_wet).sum(axis=1) / area_wet.replace(0, np.nan)
+    out["WetFrac"] = area_wet / area_have
+    if cell_km2 is not None: 
+        out["Vol_m3"] = p.mul(w * cell_km2.reindex(w.index), axis = 1).sum(axis = 1) * 1e3
+    return out
+   
 
 
 def summarize_files(raw_file, points_file, out_file = None, burned_col: str | None = None, 
-                    burned_min: float = 50.0, fill = float = 0.0) -> pd.DataFrame: 
+                    burned_min: float = 50.0, fill: float = 0.0) -> pd.DataFrame: 
     """The whole looop for one watershed, read, clean, weight, summarize, and optionally write"""
     precip = clean_precip(read_raw_precip(raw_file), fill = fill)
     points = read_cell_weights(points_file) 
