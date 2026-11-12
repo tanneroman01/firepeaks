@@ -1,3 +1,15 @@
 # Very large input files
 inputs/mtbs_perims_DD.shp
 inputs/mtbs_perims_DD.dbf
+
+# Claude Code notes (local only)
+CLAUDE.md
+
+# Local environment and caches
+.venv/
+__pycache__/
+cache/
+
+# Data: regenerable or re-downloadable
+outputs/
+inputs/gagesii_sept2011/

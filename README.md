@@ -32,3 +32,10 @@ The core modules live in firepeaks/, these modules are importable and used exten
 06_percentiles.py 
 - calculate the percentile features with the long-term aggregation 
 
+
+```mermaid
+Flowchart TD 
+
+
+```
+
