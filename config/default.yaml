@@ -7,7 +7,25 @@ paths:
   s02: outputs/02_peaks
   s03: outputs/03_precip 
   s04: outputs/04_windows
-  s05: outputs/05_metrics 
+  s05: outputs/05_metrics
+  iv_cache: cache/nwis_iv
+  peak_cache: cache/nwis_peaks
+  snow_table: inputs/snow_pct.csv
+
+peaks: 
+  pot_rate: 5           #threshold = flow independent peaks exceed 5x/yr
+  min_sep_h: 12
+  trough_ratio: 0.75
+  min_years: 5           #shorter pre-fire records get no threshold
+  recovery_years: 3      # masked from pre-fire record
+  record_start: "1980-01-01"
+  nwis_match_days: 1 
+  fetch_iv: false        # true pulls NWIS IV, slow only change if needed 
+
+filters: 
+  snow_pct_min: 15.0
+  ac24_min: 0.3
+  prom_min: 0.5
 
 sites: 
   area_tolerance: 0.10

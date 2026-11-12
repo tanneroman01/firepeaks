@@ -1,4 +1,4 @@
-"""take a hydrograph and identify peaks, working in the opposite direction of RREDI """
+"""take a hydrograph and identify peaks, working in the opposite direction of RREDI, then set a thresh from pre-fire flow """
 
 import numpy as np 
 import pandas as pd 
@@ -10,21 +10,25 @@ from bisect import bisect_left
 
 # some config parameters (tunable)
 
-MIN_SEP_H = 12
-REL_SLOPE = 0.05
-ABS_SLOPE_FRAC = 0.01   # replaces RREDIS fixed 1 cfs/h, using a fraction of the peak instead (allows for tiny basin response flows)
+MIN_SEP_H = 12          #two peaks are independent only if they are >= MIN_SEP_H hours apart
+TROUGH_RATIO = 0.75      # AND flow between this drops below TROUGH_RATIO * smaller peak
+POT_RATE = 5            # threshold = flow independent peaks exceed POT_RATE times/yr
 TROUGH_ORDER_H = 6      # a trough must be the minimum within +/- this many hrs 
-MAX_LOOKBACK_H = 120 
+MIN_YEARS = 5.0          # shorter pre-fire records get no threshold 
 HOURS_PER_YEAR = 8766.0  # account for leap years! 
 SQKM_PER_SQMI = 2.58999
 
+def utc(t) -> pd.Timestamp: 
+    t = pd.Timestamp(t)
+    return t.tz_localize("UTC") if t.tz is None else t.tz_convert("UTC")
+
 # define the pre-fire period over which a flood frequency analysis is performed to select a q threshold to filter post-fire flows by
-def pre_fire_record(q: pd.Series, ig_date, prior_fires = (), recovery_years: float = 3.0) -> pd.Series: 
+def pre_fire_record(q: pd.Series, ig_date, prior_fires = (), recovery_years: int = 3) -> pd.Series: 
     """Flow before 'Ig_date' with the post-fire period from previous fires in the same watershed masked out, such that 
     previous fire's flood do not inflate the threshold"""
     q = q.loc[:pd.Timestamp(ig_date, tz="UTC")].copy() # index to everything up to ig date
     for f in prior_fires: 
-        t0 = pd.Timestamp(f, tz = "UTC")
+        t0 = utc(f)
         q.loc[t0:t0 + pd.DateOffset(years = recovery_years)] = np.nan # all flows 3 yrs after a previous fire are rewritten to nan
     return q
 
@@ -32,10 +36,6 @@ def record_years(q: pd.Series) -> float:
     """record length of the whole pre_fire period sampled in yrs, not calendar gaps so that the masked periods dont count"""
     q = q.sort_index()
     return float(q.resample("1h").mean().notna().sum() / HOURS_PER_YEAR) 
-
-def independence_sep(area_km2: float) -> pd.Timedelta: 
-    """Using the standard separation method for declustering: 5 days + ln(area in mi^2)"""
-    return pd.Timedelta(days = max(1.0, 5.0 + np.log(area_km2 / SQKM_PER_SQMI))) # fall back to 1 day if lower
 
 def _range_min(v: np.ndarray):
     """Sparse table for O(1) minimum over v[a:b+1], so the trough test stays fast on decades of hourly flow"""
@@ -66,41 +66,38 @@ def independent_peaks(q: pd.Series, sep: pd.Timedelta, trough_ratio: float = 0.7
     kept_pos: list[int] = []  # the same positions, kept sorted by time
     for p in idx[np.argsort(v[idx], kind="stable")[::-1]]:  # sort then slice to reverse list
         j = bisect_left(kept_pos, p) # get the index where to insert candidate peak in kept positions
-        neighbours = [kept_pos[j - 1]] if j > 0 else []
-        if j < len(kept_pos):
-            neighbours.append(kept_pos[j])
-        dependent = False
-        for nb in neighbours:
-            a, b = min(p, nb), max(p, nb)
-            if abs(t[p] - t[nb]) < sep_s or trough(a, b) >= trough_ratio * min(v[p], v[nb]):
-                dependent = True
-                break
-        if dependent:
+        neighbours = ([kept_pos[j - 1]] if j > 0 else []) + ([kept_pos[j]] if j < len(kept_pos) else [])
+        if any(abs(t[p] - t[nb]) < sep_s or trough(min(p, nb), max(p, nb)) >= trough_ratio * min(v[p], v[nb])
+               for nb in neighbours):
             continue
         kept_pos.insert(j, p)
         kept.append(p)
         if max_keep and len(kept) >= max_keep:
             break
     return q.iloc[kept].rename("peak")
+        
     
-def pds_flow(q: pd.Series, area_km2: float, return_period_yr: float = 1.0, min_years: float = 5.0, trough_ratio: float = 0.75) -> dict: 
-    """partial duration flow for a return period: the level independent peaks exceed on acverage every 'return_period_yr' years. ie the mth largest peak with m = y/T, interpolated between ranks, some qc info returned w/ peak"""
-    yrs = record_years(q)
-    m = yrs / return_period_yr
-    pk = independent_peaks(q, independence_sep(area_km2), trough_ratio, max_keep=int(np.ceil(m)) + 2)
-    x = pk.values
-    if yrs < min_years or len(x) < np.ceil(m): 
+def pot_threshold(qpre: pd.Series, rate: float = POT_RATE, min_sep_h = MIN_SEP_H, 
+                  trough_ratio: float = TROUGH_RATIO, min_years: int = MIN_YEARS) -> dict: 
+    """ peaks over threshod for nominal rate (rate), pass in entire pre-fire  series
+    """
+    y = record_years(qpre)
+    m = y * rate
+    pk = independent_peaks(qpre, pd.Timedelta(hours = min_sep_h), trough_ratio, max_keep=int(np.ceil(m)) + 2)
+    x = pk[pk > 0 ].to_numpy()
+    if y < min_years or len(x) < np.ceil(m): 
         val = np.nan
     else: 
         lo = max(int(np.floor(m)), 1)
         hi = min(lo + 1, len(x))
         val = float(np.interp(m, [lo, hi], [x[lo-1], x[hi -1]]))
-    return dict(q_pds = val, return_period_yr = return_period_yr, record_years = yrs, n_peaks = len(x), short_record = yrs < min_years) 
+    return dict(qthr = val, rate = rate, record_years = y, short_record = y < min_years) # populates short record boolean if short
 
 
-# getting the thresholds per gage will look like: 
-# q15 = ...
-# qh = hourlymax(q15)
-# pre = pre_fire_record(qh, ig_date, prior_fires = earlier_ig_dates)
-# thr = pds_flow(pre, area_km2)
-# 
+def melt_season(q: pd.Series) -> dict: 
+    """ 2 harmonic fit of daily mean log flow on DOY (pre-fire record), returns melt_doys = the run of days where 
+    around the fitted maximum where the fit is in the top half of its range (the second harmonic can raise monsoon so we try and avoid that)"""
+    d = q.dropna().resample("1D").mean().dropna()
+    if len(d) < 365:                    # the record is less than 1 yr, nothing to fit 
+        return dict(h_r2 = np.nan, h_peak_hoy = np.nan, melt_doys = set())   # get the empty dict 
+    y = np.log(d.clip(lower = max))
