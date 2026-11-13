@@ -48,17 +48,37 @@ def basin_normals(features: ee.FeatureCollection, scale: int = 800,
 
 # THE ACTUAL FEATURES, ALL DERIVATIONS OF MONTHLY MEANS 
 
-# relative humidity is a derivation of temp, GAGES II was daily, this is monthly, we need to correct? 
-def rh(tmean_c, tdmean_c): 
+def rh(tmean_c, tdmean_c):
+    """relative humidity from monthly mean temp and dewpoint"""
+    raise NotImplementedError("rh: stub")
 
 
+def snow_fraction(tmean_c):
+    """fraction of precip falling as snow"""
+    if tmean_c <= SNOW_T_LOW:
+        return 1.0
+    if tmean_c >= SNOW_T_HIGH:
+        return 0.0
+    return (SNOW_T_HIGH - tmean_c) / (SNOW_T_HIGH - SNOW_T_LOW)  # lin ramp between thresh
 
-def snow_fraction(tmean_c): 
-     """fraction of precip falling as snow"""
-     if tmean_c <= SNOW_T_LOW: 
-          return 1.0 
-     if tmean_c >= SNOW_T_HIGH: 
-          return 0.0
-     return (SNOW_T_HIGH - tmean_c) / (SNOW_T_HIGH - SNOW_T_LOW) # lin ramp between thresh 
 
-def markham_seasonality(): 
+def markham_seasonality():
+    """Markham (1970) precipitation seasonality index"""
+    raise NotImplementedError("markham_seasonality: stub")
+
+
+# ---- original WIP code (commented out so the module imports) ----
+# # relative humidity is a derivation of temp, GAGES II was daily, this is monthly, we need to correct? 
+# def rh(tmean_c, tdmean_c): 
+#
+#
+#
+# def snow_fraction(tmean_c): 
+#      """fraction of precip falling as snow"""
+#      if tmean_c <= SNOW_T_LOW: 
+#           return 1.0 
+#      if tmean_c >= SNOW_T_HIGH: 
+#           return 0.0
+#      return (SNOW_T_HIGH - tmean_c) / (SNOW_T_HIGH - SNOW_T_LOW) # lin ramp between thresh 
+#
+# def markham_seasonality(): 

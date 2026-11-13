@@ -56,51 +56,64 @@ def _open(year: int):
         return xr.open_zarr(s3fs.S3Map(f"{BUCKET}/{year}.zarr", s3 =fs), consolidated= True) 
 
     
-def cells_in_basin(goem_4326, max_cells: int = 4000, mode: str = "centre"): 
-    """ indices of the AORC cells to summarize over, takes all the cells whose 
-    centerfalls inside the basin, not every cell whose footprint intersects the basin"""
-    from shapely.geometry import Point, box 
-    minx, miny, maxx, maxy = geom_4326.bounds
-    i0 = max(0, int(np.floor((miny - Lat0) / DEG))) 
-    i1 = 
-    j0 = 
-    j1 =
-    if (i1-i0 + 1) * (j1 - j0 +1 ) > max_cells: 
-        raise ValueError("basin bounding box to big for a single extraction")
-    h = DEG/ 2.0 
-    ii, jj = [], []
-    for i in range(j0, j1 + 1): 
+def cells_in_basin(geom_4326, max_cells: int = 4000, mode: str = "centre"):
+    """indices of the AORC cells to summarize over, takes all the cells whose
+    centre falls inside the basin, not every cell whose footprint intersects the basin"""
+    raise NotImplementedError("cells_in_basin: stub")
 
 
+def watershed_series(geom_4326, start, end, tag: str) -> pd.DataFrame:
+    """Hourly basin summary in both mean and max depth, wetfrac is
+    the fraction of cells with precip"""
+    raise NotImplementedError("watershed_series: stub")
 
 
-
-def watershed_series(geom_4326, start, end, tag: str) -> pd.DataFrame: 
-    """Hourly mazin summary in both mean and max depth, wetfrac is 
-    the fractiom of cells with precip"""
-    CACHE.mkdir(parents=True, exist_ok=True)
-    import warnings as _w
-    ii,jj, n = cells_in_basin(geom_4326, mode=mode)
-    # the cells set is part of the cache key
-    cells = hashlib.sha1(np.asarray([ii, jj]).tobytes()).hexdigest()[:10]
-    key = (CACHE / f)
+def watershed_max_series(geom_4326, start, end, tag: str) -> pd.Series:
+    """Hourly per-cell MAXIMUM precipitation (mm) over the basin, for [start, end]"""
+    raise NotImplementedError("watershed_max_series: stub")
 
 
-
-    def watershed_max_series(geom_4326, start, end, tag: str) -> pd.Series: 
-        """Hourly per-cell MAXIMUM precipitation (mm) over the basin, for [start, end]"""
-        CACHE.mkdir(parents=True, exist_ok= True)
-        key = CACHE / f"{tag}_{pd.Timestamp(start).date()}_{pd.Timestamp(end).date()}.csv"
-        if key.exists(): 
-            s = pd.read_csv(key, index_col=0, parse_dates= True).iloc[:, 0]
-            s.name = "mm"
-            return s
-        ii, jj, n = cells_in_basin(geom_4326, mode=mode)
-        parts = []
-        for year in range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1): 
-            ds = _open(year)
-
-
-
-
-
+# ---- original WIP code (commented out so the module imports) ----
+# def cells_in_basin(goem_4326, max_cells: int = 4000, mode: str = "centre"): 
+#     """ indices of the AORC cells to summarize over, takes all the cells whose 
+#     centerfalls inside the basin, not every cell whose footprint intersects the basin"""
+#     from shapely.geometry import Point, box 
+#     minx, miny, maxx, maxy = geom_4326.bounds
+#     i0 = max(0, int(np.floor((miny - Lat0) / DEG))) 
+#     i1 = 
+#     j0 = 
+#     j1 =
+#     if (i1-i0 + 1) * (j1 - j0 +1 ) > max_cells: 
+#         raise ValueError("basin bounding box to big for a single extraction")
+#     h = DEG/ 2.0 
+#     ii, jj = [], []
+#     for i in range(j0, j1 + 1): 
+#
+#
+#
+#
+#
+# def watershed_series(geom_4326, start, end, tag: str) -> pd.DataFrame: 
+#     """Hourly mazin summary in both mean and max depth, wetfrac is 
+#     the fractiom of cells with precip"""
+#     CACHE.mkdir(parents=True, exist_ok=True)
+#     import warnings as _w
+#     ii,jj, n = cells_in_basin(geom_4326, mode=mode)
+#     # the cells set is part of the cache key
+#     cells = hashlib.sha1(np.asarray([ii, jj]).tobytes()).hexdigest()[:10]
+#     key = (CACHE / f)
+#
+#
+#
+#     def watershed_max_series(geom_4326, start, end, tag: str) -> pd.Series: 
+#         """Hourly per-cell MAXIMUM precipitation (mm) over the basin, for [start, end]"""
+#         CACHE.mkdir(parents=True, exist_ok= True)
+#         key = CACHE / f"{tag}_{pd.Timestamp(start).date()}_{pd.Timestamp(end).date()}.csv"
+#         if key.exists(): 
+#             s = pd.read_csv(key, index_col=0, parse_dates= True).iloc[:, 0]
+#             s.name = "mm"
+#             return s
+#         ii, jj, n = cells_in_basin(geom_4326, mode=mode)
+#         parts = []
+#         for year in range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1): 
+#             ds = _open(year)

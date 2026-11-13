@@ -111,24 +111,25 @@ def select_cells(points: pd.DataFrame, col: str = "BHmodhighP", min_value: float
 def summarize(precip: pd.DataFrame, weights: pd.Series, wet_mm: float = WET_MM, min_frac: float = MAX_MIN_FRAC,
               cell_km2: pd.Series | None = None) -> pd.DataFrame: 
     """ per timestep basin summaries, precip is unweighted depth per cell, weight is the fraction of each cell inside the basin"""
-    w = weights.astype(float)
-    missing = w.index.difference(precip.columns)
-    if len(missing): 
-        raise KeyError(f"{len(missing)} weighted cells have not precip column")
-    p = precip[w.index]
-    wp = p.mul(w, axis= 1)
-    is_wet = p >= WET_MM
-    area_have = p.notna().mul(w, axis = 1).sum(axis=1).replace(0, np.nan)
-    area_wet = is_wet.mul(w, axis= 1).sum(axis= 1)
-    out = pd.DataFrame(index = p.index)
-    out["Max"] = p.loc[:, w >= min_frac].max(axis=1)
-    out["WetAvg"] = wp.sum(axis=) / area_have
-    out["StormAvg"] = wp.where(is_wet).sum(axis=1) / area_wet.replace(0, np.nan)
-    out["WetFrac"] = area_wet / area_have
-    if cell_km2 is not None: 
-        out["Vol_m3"] = p.mul(w * cell_km2.reindex(w.index), axis = 1).sum(axis = 1) * 1e3
-    return out
-   
+    raise NotImplementedError("summarize: stub")
+    # ---- original WIP code ----
+    # w = weights.astype(float)
+    # missing = w.index.difference(precip.columns)
+    # if len(missing): 
+    #     raise KeyError(f"{len(missing)} weighted cells have not precip column")
+    # p = precip[w.index]
+    # wp = p.mul(w, axis= 1)
+    # is_wet = p >= WET_MM
+    # area_have = p.notna().mul(w, axis = 1).sum(axis=1).replace(0, np.nan)
+    # area_wet = is_wet.mul(w, axis= 1).sum(axis= 1)
+    # out = pd.DataFrame(index = p.index)
+    # out["Max"] = p.loc[:, w >= min_frac].max(axis=1)
+    # out["WetAvg"] = wp.sum(axis=) / area_have
+    # out["StormAvg"] = wp.where(is_wet).sum(axis=1) / area_wet.replace(0, np.nan)
+    # out["WetFrac"] = area_wet / area_have
+    # if cell_km2 is not None: 
+    #     out["Vol_m3"] = p.mul(w * cell_km2.reindex(w.index), axis = 1).sum(axis = 1) * 1e3
+    # return out
 
 
 def summarize_files(raw_file, points_file, out_file = None, burned_col: str | None = None, 

@@ -1,0 +1,10 @@
+numpy
+pandas
+geopandas
+shapely>=2
+scipy
+pyarrow
+pyyaml
+s3fs
+xarray
+zarr
