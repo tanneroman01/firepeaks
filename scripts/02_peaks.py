@@ -5,13 +5,9 @@ import numpy as np
 import geopandas as gpd
 from pathlib import Path 
 import yaml 
-import firepeaks.flow as flow 
 import firepeaks.pre_fire_peaks as pre 
 import firepeaks.post_fire_peaks as post 
-
-
-
-
+import firepeaks.flow as flow 
 
 
 # paths and config
@@ -26,7 +22,15 @@ basins = gpd.read_file(P["s01"] / "basins.gpkg")
 fires = pd.read_parquet(P["s01"] / "fires.parquet")
 sites = pd.read_parquet(P["s01"] / "sites.parquet")
 area = sites.set_index("gage_id").area_km2
+
+
 snow = pd.read_csv(P["snow_table"], dtype= str).rename(columns=str.lower)
 snow = pd.Series(pd.to_numeric(snow.snow_pct_precip, errors= "coerce").values, index = snow.gage_id.str.zfill(8)) 
 
-match = pd.Timedelta
+match = pd.Timedelta(days=C["nwis_match_days"]) # constant from config YAML 
+now = pd.Timestamp.now(tz = "UTC") # for run logs 
+pair_rows, peak_rows = [], []
+
+for g, gf, in fires.searched.groupby["gage_id"]
+
+

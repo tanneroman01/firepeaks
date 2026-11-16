@@ -2,7 +2,7 @@ import warnings
 import numpy as np 
 import pandas as pd 
 from scipy.signal import find_peaks, argrelextrema, peak_prominences
-from pre_fire_peaks import (MIN_SEP_H, TROUGH_RATIO, independent_peaks, melt_season, utc) 
+from firepeaks.pre_fire_peaks import (MIN_SEP_H, TROUGH_RATIO, independent_peaks, melt_season, utc) 
 
 
 # some config parameters (tunable)
@@ -119,5 +119,5 @@ def detect(q15: pd.Series, threshold: float, start, end, ef: EventFilter | None 
 
 #---------------------------- When is the rise start?-------------------------------------------
 
-def last_trough(qh: pd.Series, peak_time, max_lookback: int = MAX_LOOKBACK_H, order_h = TROUGH_ORDER_H): 
-    """lower bound for the rise search, the last local min before the peak"""
+# def last_trough(qh: pd.Series, peak_time, max_lookback: int = MAX_LOOKBACK_H, order_h = TROUGH_ORDER_H): 
+ #   """lower bound for the rise search, the last local min before the peak"""
