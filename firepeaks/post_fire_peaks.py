@@ -119,5 +119,8 @@ def detect(q15: pd.Series, threshold: float, start, end, ef: EventFilter | None 
 
 #---------------------------- When is the rise start?-------------------------------------------
 
-# def last_trough(qh: pd.Series, peak_time, max_lookback: int = MAX_LOOKBACK_H, order_h = TROUGH_ORDER_H): 
- #   """lower bound for the rise search, the last local min before the peak"""
+ def last_trough(qh: pd.Series, peak_time, max_lookback: int = MAX_LOOKBACK_H, order_h = TROUGH_ORDER_H): 
+    """lower bound for the rise search, the last local min before the peak"""
+
+
+# sparse table for the search? 

@@ -16,7 +16,7 @@ import hashlib, warnings
 from pathlib import Path 
 import numpy as np 
 import pandas as pd 
-
+from firepeaks.window import 
 
 BUCKET = "noaa-nws-aorc-v1-1-1km" 
 VAR = "APCP_surface"
@@ -35,9 +35,7 @@ TIP_ROUNDING = "round" # or "floor". This governs how an hourly depth becomes
 # N = 4 tips 
 # if we just wrote dry_hrs > 3m sorms separated by exactly 3 hrs would be merged 
 # with "round" an hr with less than 0.05mm becomes zero tips 
-
-
-STORM_GAP_H = 6   # this is the minimum interum time MIT, 3 or 6 hrs?  
+  
 MIN_DEPTH_MM = 1.0 
 MIN_DURATION_H = 1.0 
 ANTECEDENT_DAYS = 6 
