@@ -24,15 +24,15 @@ Region is basin burn area overlap, LAI is reduced at 500m, NDVI at 30m"""
 # apparently terra and aqua are drifting off their orbits and scheduled to shut down Fep 2027, something to keep in mind
 from __future__ import annotations 
 import hashlib 
-import json 
 import time 
 import pandas as pd 
 import numpy as np 
 import geopandas as gpd 
 import ee
 from pathlib import Path 
-import json 
-import sys 
+import json  
+from concurrent.futures import ThreadPoolExecutor
+
 
 NEAR_DAYS, WIDE_DAYS, FLOOR_DAYS, N_BASE = 90, 180, 15, 5 
 MIN_BASE = 0.1 # to prevent ratio's from blowing up 
@@ -135,4 +135,31 @@ def _reduce(geom, sensor, wins):
         out.update({n[1:]: res.get(n) for n in names})
     return out
 
+# Getting the burn/basin intersections and caching them 
+# perhaps should re-factor such that burn/basin intersections are cached earlier in the run for other feature calc's too? 
 
+def pair_regions(events, basins, perims, simplify_deg = 0.0003): 
+    b = basins.assign(GAGE_ID = basins.GAGE_ID.astype(str).str.zfill(8))
+    bg = dict(zip(b.GAGE_ID, b.geometry))
+    p = perims.to_crs(b.crs)
+    pg = dict(zip(p.Event_ID, p.geometry))
+    out = {}
+    for g, f in events[["GAGE_ID", "Event_ID"]].dropna().drop_duplicates().itertuples(index = False): 
+        if g not in bg or f not in pg: 
+            print(f"veg: no geometry for {g} / {f}")
+            continue
+        inter = bg[g].intersection(pg[f])
+        if inter.is_empty: 
+            continue
+        out[(g, f)] = gpd.GeoSeries([inter], crs = b.crs).to_crs(4326).iloc[0].simplify(simplify_deg)
+
+# fetch or read every window each gage-fire pairs events need, return dict of features 
+
+
+# calculate the ratio's and deltas of the lai/ndvi for the basins 
+
+
+# global builder function 
+
+
+# main so that we can call this script directly 
