@@ -154,12 +154,88 @@ def pair_regions(events, basins, perims, simplify_deg = 0.0003):
         out[(g, f)] = gpd.GeoSeries([inter], crs = b.crs).to_crs(4326).iloc[0].simplify(simplify_deg)
 
 # fetch or read every window each gage-fire pairs events need, return dict of features 
-
+def pair_values(gage, fire, region, ev_pairs, cache_dir: Path):
+    """Fetch (or read) every window value this pair's events need; returns {'lai': {...}, 'ndvi': {...}}."""
+    h = hashlib.sha1(region.wkb).hexdigest()[:10]
+    path = cache_dir / f"{gage}_{fire}_{h}.json"
+    cache = json.loads(path.read_text()) if path.exists() else {"lai": {}, "ndvi": {}}
+    need = {"lai": set(), "ndvi": set()}
+    for ig, ev in ev_pairs:
+        flood, base = windows(ig, ev)
+        for w in ([flood] if flood else []) + base:
+            for s in need:
+                if wkey(s, w) not in cache[s]:
+                    need[s].add(w)
+    if any(need.values()):
+        geom = ee.Geometry(region.__geo_interface__)
+        for s, wins in need.items():
+            if wins:
+                cache[s].update(_reduce(geom, s, sorted(wins)))
+        path.write_text(json.dumps(cache))
+    return cache
 
 # calculate the ratio's and deltas of the lai/ndvi for the basins 
-
+def _ratio(c, flood, base):
+    f = c.get(flood)
+    b = [v for v in (c.get(k) for k in base) if v is not None]
+    if f is None or not b or abs(np.mean(b)) < MIN_BASE:
+        return np.nan, np.nan, len(b)
+    return f / np.mean(b), f - np.mean(b), len(b)
 
 # global builder function 
 
+def build(events: pd.DataFrame, basins: gpd.GeoDataFrame, perims: gpd.GeoDataFrame,
+          cache_dir: str | Path, workers: int = 4) -> pd.DataFrame:
+    """Return `events` (same rows, same order) with COLS appended.
+
+    events needs GAGE_ID, Fire_ID, Ig_Date, event_date. basins needs GAGE_ID + geometry
+    (gagesii_basins.gpkg); perims needs Event_ID + geometry (MTBS). Call init() first.
+    """
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ev = events.copy()
+    ev["GAGE_ID"] = ev.GAGE_ID.astype(str).str.zfill(8)
+    ev["Ig_Date"], ev["event_date"] = pd.to_datetime(ev.Ig_Date), pd.to_datetime(ev.event_date)
+
+    regions = pair_regions(ev, basins, perims)
+    groups = {k: list(zip(g.Ig_Date, g.event_date)) for k, g in ev.groupby(["GAGE_ID", "Fire_ID"])
+              if k in regions}
+    print(f"veg: {len(ev)} events, {len(groups)} (gage, fire) pairs", flush=True)
+
+    def run(k):
+        try:
+            return k, pair_values(*k, regions[k], groups[k], cache_dir)
+        except Exception as e:  # noqa: BLE001 - report and continue; a rerun fetches only what is missing
+            print("veg FAIL", *k, str(e)[:200], flush=True)
+            return k, None
+    with ThreadPoolExecutor(workers) as ex:
+        caches = dict(ex.map(run, groups))
+
+    rows = []
+    for r in ev.itertuples():
+        o = dict.fromkeys(COLS, np.nan)
+        c = caches.get((r.GAGE_ID, r.Fire_ID))
+        flood, base = windows(r.Ig_Date, r.event_date) if pd.notna(r.Ig_Date) else (None, [])
+        if c is not None and flood is not None:
+            o["ratio_LAI_near"], _, o["n_base_lai"] = _ratio(
+                c["lai"], wkey("lai", flood), [wkey("lai", w) for w in base])
+            o["ratio_NDVI_near"], o["delta_NDVI_near"], o["n_base_ndvi"] = _ratio(
+                c["ndvi"], wkey("ndvi", flood), [wkey("ndvi", w) for w in base])
+        rows.append(o)
+    out = pd.concat([events.reset_index(drop=True), pd.DataFrame(rows)], axis=1)
+    print("veg coverage:", out[COLS].notna().sum().to_dict(), flush=True)
+    return out
+
 
 # main so that we can call this script directly 
+if __name__ == "__main__":
+    import yaml
+    repo = Path(__file__).resolve().parents[2]
+    cfg = yaml.safe_load((repo / "config" / "default.yaml").read_text())["paths"]
+    init()
+    table = pd.read_csv(repo / cfg["event_table"], dtype={"GAGE_ID": str})
+    res = build(table, gpd.read_file(repo / cfg["basins"]), gpd.read_file(repo / cfg["mtbs"]),
+                repo / "cache" / "veg")
+    res.to_csv(repo / "outputs" / "veg_features.csv", index=False)  # new file; never overwrites the input table
+
+    
