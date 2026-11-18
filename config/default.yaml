@@ -8,9 +8,11 @@ paths:
   s03: outputs/03_precip 
   s04: outputs/04_windows
   s05: outputs/05_metrics
+  s06: outputs/final_event_table
   iv_cache: cache/nwis_iv
   peak_cache: cache/nwis_peaks
   snow_table: inputs/snow_pct.csv
+  precip_cache: cache/aorc 
 
 peaks: 
   pot_rate: 5           #threshold = flow independent peaks exceed 5x/yr

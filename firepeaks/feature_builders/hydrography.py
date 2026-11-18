@@ -43,7 +43,7 @@ def flowlines(basin_5070) -> gpd.GeoDataFrame:
     return g 
 
 
-def mainstem(net: gpd.GeoDataFrame): 
+def mainstem(net: gpd.GeoDataFrame) -> gpd.GeoDataFrame:  
     """the outlets level path (the network flowline with the largest drainage area)"""
     if net.empty or "levelpathi" not in net:
         return None
