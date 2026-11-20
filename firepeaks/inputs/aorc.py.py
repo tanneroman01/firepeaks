@@ -23,7 +23,6 @@ FILL = -32767         # missing value into the raw int16
 SCALE = 0.1           # raw int16 * scale = mm
 CHUNCK_LAT, CHUNK_LON = 128, 256   # zarr chunk shape (the time chuck is 144 h)
 EA = 5070            # CONUS Albers of course 
-STORE = Path("cache") / "aorc_cells"
 _LOCK = threading.Lock()
 
 @lru_cache(maxsize = 1)
@@ -179,3 +178,14 @@ def read_precip(folder: Path, start, end, cols=None) -> pd.DataFrame:
 def read_cells(folder: Path) -> pd.DataFrame:
     """the cell table, indexed by column name, for weights (frac) and subsets (centre)"""
     return pd.read_parquet(Path(folder) / "cells.parquet").set_index("col")
+
+def run(cfg: dict, P: dict) -> None: 
+    from firepeaks.inputs.common import study_basins
+    a = cfg["inputs"]["aorc"]
+    b = study_basins(P)
+    folders = [register(r.gage_id, r.geometry, b.crs, P["aorc_cells"]) for r in b.itertuples()]
+    failed = pull(folders, range(a["first_year"], a["last_year"] + 1), a["workers"], a["retries"])
+    print(f" aorc: {len(folders)} basins, {len(failed)} (group, year) jobs failed" + 
+          ("rerun the step to fill them" if failed else ""))
+
+    

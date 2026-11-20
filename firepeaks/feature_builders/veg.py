@@ -29,6 +29,7 @@ import pandas as pd
 import numpy as np 
 import geopandas as gpd 
 import ee
+from firepeaks.config import ee_init
 from pathlib import Path 
 import json  
 from concurrent.futures import ThreadPoolExecutor
@@ -52,8 +53,9 @@ SCALE = {"lai": 500, "ndvi": 30}
 CHUNK = {"lai": 80, "ndvi": 20}  # bands per reduceRegion, landsat is heavier imagery so gets a smaller batch so that a single request doesnt run out of memory
 COLS = ["ratio_LAI_near", "n_base_lai", "ratio_NDVI_near", "delta_NDVI_near", "n_base_ndvi"]
 
-def init(project: str = "dbflow-480621"): 
-    ee.Initialize(project = project)
+def init(project: str | None = None):
+    """Earth Engine with EE_PROJECT from .env (or the project given)"""
+    ee_init(project)
 
 
 # defining windows (need to add some leap year handling in here? )

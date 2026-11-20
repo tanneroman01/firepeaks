@@ -94,10 +94,15 @@ def pot_threshold(qpre: pd.Series, rate: float = POT_RATE, min_sep_h = MIN_SEP_H
     return dict(qthr = val, rate = rate, record_years = y, short_record = y < min_years) # populates short record boolean if short
 
 
-def melt_season(q: pd.Series) -> dict: 
-    """ 2 harmonic fit of daily mean log flow on DOY (pre-fire record), returns melt_doys = the run of days where 
-    around the fitted maximum where the fit is in the top half of its range (the second harmonic can raise monsoon so we try and avoid that)"""
-    d = q.dropna().resample("1D").mean().dropna()
-    if len(d) < 365:                    # the record is less than 1 yr, nothing to fit 
-        return dict(h_r2 = np.nan, h_peak_hoy = np.nan, melt_doys = set())   # get the empty dict 
-    y = np.log(d.clip(lower = max))
+
+#Superceded, need a replacement, this is exluding a massive portion of the summer months and dropping floods that are not snowmelt driven
+
+#def melt_season(q: pd.Series) -> dict: 
+#    """ 2 harmonic fit of daily mean log flow on DOY (pre-fire record), returns melt_doys = the run of days where 
+#    around the fitted maximum where the fit is in the top half of its range (the second harmonic can raise monsoon so we try and avoid that)"""
+#    d = q.dropna().resample("1D").mean().dropna()
+#    if len(d) < 365:                    # the record is less than 1 yr, nothing to fit 
+#        return dict(h_r2 = np.nan, h_peak_hoy = np.nan, melt_doys = set())   # get the empty dict 
+#    y = np.log(d.clip(lower = max))
+
+

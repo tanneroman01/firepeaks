@@ -2,7 +2,9 @@
     basin-fire pairs to those we define as "unaltered". That is, gages whos flow 
     measures a relatively natural hydrologic regime 
     
-    Criteria are: 
+    Not written yet, step is switched off in the yaml
 
-    
     """
+
+def run(cfg: dict, P: dict) -> None:
+    raise NotImplementedError("disturbance index filter is slated, but not done, come back later!")

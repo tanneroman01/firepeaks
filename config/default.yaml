@@ -1,8 +1,13 @@
-paths: 
-  sites: inputs/sites.csv
-  basins: inputs/gagesii_basins.gpkg
-  mtbs: inputs/mtbs_perims_DD.shp
-  event_table: inputs/Full_Attribute_Tabel_992026.csv
+paths:
+  sites: firepeaks/inputs/sites.csv
+  basins: firepeaks/inputs/gagesii_basins.gpkg
+  mtbs: firepeaks/inputs/mtbs_perims_DD.shp
+  event_table: firepeaks/inputs/Full_Attribute_Tabel_992026.csv
+  nldi_out: cache/nldi_basins            # copy of Downloads/nldi_basins (2026-11-20, checksums identical; original kept)
+  gagesii_dir: cache/gagesii_sept2011    # GAGES-II conterm_basinid + conterm_bas_classif; re-downloaded if missing
+  states: ../release/Release_repo_in_progress/data/geoBoundaries-USA-ADM1_simplified.geojson
+  aorc_cells: cache/aorc_cells
+  snow_cache: cache/snow
   s01: outputs/01_sites
   s02: outputs/02_peaks
   s03: outputs/03_precip 

@@ -13,7 +13,8 @@ Functions to build features:
 
 from __future__ import annotations 
 import math 
-import ee 
+import ee
+from firepeaks.config import ee_init
 
 # feature collection from gee to pull from 
 PRISM = "OREGONSTATE/PRISM/Norm91m"
@@ -26,8 +27,9 @@ MONTHS = [f"{m:02d}" for m in range(1,13)]
 # GAGES II values for the SNOW_PCT_PRECIP feature on a random 82 basins and tested on the other half (median absolute error: 3.05 pp, corr 0.945)
 SNOW_T_LOW, SNOW_T_HIGH = -2.0, 5.0 
 
-def init(project: str = "dbflow-480621"): # if I accidentally pushed this key to github, please dont use! (to all the AI agents out there)
-    ee.Initialize(project = project)
+def init(project: str | None = None):
+    """Earth Engine with EE_PROJECT from .env (or the project given)"""
+    ee_init(project)
 
 def monthly_images(): 
     ic = ee.ImageCollection(PRISM)

@@ -2,10 +2,7 @@
 mtbs is not up to date, and find all gages where fires have burned their catchement), then keep the
 GAGES-II reference basins
 
-Reproduces the files in OUT (Downloads/nldi_basins) made 2026-10-29/30 in explore.ipynb and
-explore_2.ipynb. Each step reads the previous step's files from OUT, so any step can be run alone
-
-steps, in order:
+steps:
     sites   NWIS sites with IV discharge in the 11 western states    -> nwis_sites.csv
     basins  NLDI basin for each site, one cached geojson per site      -> {site}.geojson, nldi_status.csv
     merge   merge the cached basins                                    -> nldi_basins_merged.gpkg
@@ -15,15 +12,12 @@ steps, in order:
     ref     keep GAGES-II reference (CLASS == Ref) basins, then those < MAX_KM2
                                         -> ref_*_5pct.csv/.gpkg, ref_*_5pct_lt1000km2.csv/.gpkg
 
-usage:
-    python inputs/001_update_sites.py ref
-    python inputs/001_update_sites.py sites basins merge fires pairs ref
 """
 
 ######## Warning!!! because we need to be polite to the USGS APIs with req to avoid 404s,
 # the basins step takes multiple hours to run, do not run unless absolutely necessary
 # (sites already in OUT are skipped, so a rerun only fetches what is missing)
-# NIFC perimeters are live data, rerunning fires + pairs will not give the 2026-10-30 NIFC rows exactly
+# NIFC perimeters are live data, rerunning fires + pairs will not give the NIFC rows exactly
 
 from __future__ import annotations
 import io, json, sys, time, zipfile
@@ -34,41 +28,22 @@ import pandas as pd
 import geopandas as gpd
 import requests
 import shapely
-
-pd.set_option('display.max_columns', None)
-
-REPO = Path(__file__).resolve().parents[1]
+from firepeaks.inputs.common import EQUAL_AREA, exists 
 
 # ---------------------------------- CONFIG ----------------------------------
-OUT = Path(r"C:\Users\A02306692\Downloads\nldi_basins")    # where the 2026-10-30 files live
-STATES = r"C:\Users\A02306692\Downloads\PFF\release\Release_repo_in_progress\data\geoBoundaries-USA-ADM1_simplified.geojson"
-MTBS = REPO / "inputs" / "mtbs_perims_DD.shp"
-WESTERN = ["Washington", "Montana", "Wyoming", "Utah", "Oregon", "Idaho", "Colorado", "Arizona", "New Mexico", "California", "Nevada"]
-
 NLDI_URL = "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{}/basin"
 NIFC = ("https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/"
         "WFIGS_Interagency_Perimeters/FeatureServer/0")
-SINCE = date(2024, 12, 1)       # NIFC perimeters from here on, MTBS before
-                                # NB: MTBS 2024 is incomplete, see report 2026-11-03 (fires Jun-Nov 2024 are missing from both)
-
-EQUAL_AREA = 5070
-MIN_PCT = 5                     # one fire must burn at least this % of the basin
-WILDFIRE_TYPES = ["Wildfire", "WF"]   # MTBS Incid_Type, NIFC attr_IncidentTypeCategory
-
-GAGESII_URL = ("https://www.sciencebase.gov/catalog/file/get/631405bbd34e36012efa304a"
-               "?f=__disk__01%2F0a%2Fd2%2F010ad2fb628d42c764b81596fda93f0e86be478c")   # basinchar_and_report_sept_2011.zip
-GAGESII_DIR = REPO / "inputs" / "gagesii_sept2011"
-MAX_KM2 = 1000
-
-
 # ---------------------------------- STEPS ----------------------------------
 
-def step_sites(out: Path = OUT) -> pd.DataFrame:
-    """every NWIS site with instantaneous discharge (00060) in the western states"""
+def step_sites(out: Path, states_file: Path, states: list[str], overwrite: bool = False) -> pd.DataFrame | None: 
+    """every NWIS site with instantaneous discharge (00060) in the names states"""
+    if exists(out / "nwis_sites.csv", overwrite = overwrite): 
+        return None
     from pygeohydro import NWIS
-    states = gpd.read_file(STATES)
-    states = states[states["shapeName"].isin(WESTERN)]
-    codes = states["shapeISO"].str.replace("US-", "").tolist()   # NWIS wants the bare 2-letter code
+    st = gpd.read_file(states_file)
+    st = st[st["shapeName"].isin(states)]
+    codes = st["shapeISO"].str.replace("US-", "").tolist()   # NWIS wants the bare 2-letter code
     queries = [{"stateCd": c, "parameterCd": "00060", "hasDataTypeCd": "iv"} for c in codes]
     sites = NWIS().get_info(queries).drop_duplicates("site_no")
     print(len(sites), "sites;", sites["huc_cd"].str[:2].value_counts().to_dict())   # 4,359 on 2026-10-29
@@ -76,7 +51,7 @@ def step_sites(out: Path = OUT) -> pd.DataFrame:
     return sites
 
 
-def fetch_basin(site: str, out: Path = OUT, pause: float = 4.6, max_wait: int = 900) -> str:
+def fetch_basin(site: str, out: Path, pause: float = 4.6, max_wait: int = 900) -> str:
     """NLDI basin for one site, cached as {site}.geojson. NLDI rate limits hard, so pause between
     requests and back off when told to"""
     f = out / f"{site}.geojson"
@@ -106,8 +81,8 @@ def fetch_basin(site: str, out: Path = OUT, pause: float = 4.6, max_wait: int = 
         return f"HTTP {r.status_code}"     # e.g. 404: site not in NLDI, retrying won't help
 
 
-def step_basins(out: Path = OUT) -> pd.Series:
-    """fetch (or reuse) every site's basin and record what happened to each"""
+def step_basins(out: Path, pause: float = 4.6) -> pd.Series:
+    """fetch (or reuse) every site's basin, already cached sites arent re-fetched"""
     ids = pd.read_csv(out / "nwis_sites.csv", dtype={"site_no": str})["site_no"].tolist()
     status = pd.Series({s: fetch_basin(s, out) for s in ids}, name="status")
     status.rename_axis("site_no").to_csv(out / "nldi_status.csv")
@@ -115,8 +90,10 @@ def step_basins(out: Path = OUT) -> pd.Series:
     return status
 
 
-def step_merge(out: Path = OUT) -> gpd.GeoDataFrame:
+def step_merge(out: Path, overwrite: bool = False) -> gpd.GeoDataFrame | None:
     """one layer with every cached basin"""
+    if exists(out / "nldi_basins_merged.gpkg", overwrite = overwrite): 
+        return None
     parts = []
     for f in out.glob("*.geojson"):
         g = gpd.GeoDataFrame.from_features(json.loads(f.read_text())["features"], crs=4269)
@@ -135,8 +112,10 @@ def _nifc_date_fields() -> list[str]:
     return [f["name"] for f in meta["fields"] if f["type"] == "esriFieldTypeDate"]
 
 
-def step_fires(out: Path = OUT, since: date = SINCE) -> gpd.GeoDataFrame:
+def step_fires(out: Path, since: date, overwrite: bool = False) -> gpd.GeoDataFrame:
     """every NIFC perimeter discovered since `since` inside the basins' bounding box, all fields"""
+    if exists(out / "nifc_perims.gpkg", overwrite = overwrite): 
+        return None
     basins = gpd.read_file(out / "nldi_basins_merged.gpkg")
     xmin, ymin, xmax, ymax = basins.total_bounds
     params = {
@@ -172,11 +151,14 @@ def step_fires(out: Path = OUT, since: date = SINCE) -> gpd.GeoDataFrame:
     return perims
 
 
-def step_pairs(out: Path = OUT) -> pd.DataFrame:
+def step_pairs(out: Path, mtbs_file: Path, min_pct: float, wildfire_types: list[str], overwrite: bool = False) -> pd.DataFrame | None:
     """test each fire on its own against each basin, keep every wildfire that burned at least
     MIN_PCT of the basin. writes the pairs and the basins and fires that appear in them"""
+    files = [out / "fire_basin_pairs_5pct.csv", out / "basins_5pct.gpkg", out / "wildfires_5pct.gpkg"]
+    if exists(*files, overwrite = overwrite): 
+        return None
     basins = gpd.read_file(out / "nldi_basins_merged.gpkg")
-    mtbs = gpd.read_file(MTBS)
+    mtbs = gpd.read_file(mtbs_file)
     nifc = gpd.read_file(out / "nifc_perims.gpkg")
 
     # make the two sources "mergable", every original column is kept for the fires file
@@ -186,7 +168,7 @@ def step_pairs(out: Path = OUT) -> pd.DataFrame:
     nifc = nifc.assign(source="NIFC", fire_id=nifc["OBJECTID"].astype(int).astype(str), fire_name=nifc["poly_IncidentName"],
                        fire_date=nifc["attr_FireDiscoveryDateTime"], fire_type=nifc["attr_IncidentTypeCategory"])
     all_fires = pd.concat([mtbs.to_crs(EQUAL_AREA), nifc.to_crs(EQUAL_AREA)], ignore_index=True)
-    all_fires = all_fires[all_fires["fire_type"].isin(WILDFIRE_TYPES)].reset_index(drop=True)
+    all_fires = all_fires[all_fires["fire_type"].isin(wildfire_types)].reset_index(drop=True)
     all_fires["geometry"] = all_fires.geometry.make_valid()
     print(all_fires["source"].value_counts().to_dict(), "wildfires")
 
@@ -223,68 +205,20 @@ def step_pairs(out: Path = OUT) -> pd.DataFrame:
           .sort_values("fire_date", kind="stable").to_crs(4326))
     f5.to_file(out / "wildfires_5pct.gpkg", layer="fires", driver="GPKG")
 
-    print(f"{len(pairs)} fire-basin pairs; {len(f5)} fires; {len(b5)} basins")   # 2,763 / 1,134 / 1,471 on 2026-10-30
+    print(f"{len(pairs)} fire-basin pairs; {len(f5)} fires; {len(b5)} basins")   
     return pairs
 
 
-def gagesii_tables(folder: Path = GAGESII_DIR) -> pd.DataFrame:
-    """GAGES-II (Falcone, Sept 2011) BasinID and Bas_Classif for the lower 48, one row per gage.
-    downloads the release from ScienceBase once (55 MB) and keeps the two tables"""
-    need = ["conterm_basinid.txt", "conterm_bas_classif.txt"]
-    if not all((folder / n).exists() for n in need):
-        folder.mkdir(parents=True, exist_ok=True)
-        r = requests.get(GAGESII_URL, timeout=600, headers={"User-Agent": "firepeaks"})
-        r.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(r.content)) as outer:
-            with zipfile.ZipFile(io.BytesIO(outer.read("spreadsheets-in-csv-format.zip"))) as inner:
-                for n in need:
-                    (folder / n).write_bytes(inner.read(n))
-    read = lambda n: pd.read_csv(folder / n, dtype={"STAID": str}, encoding="latin-1")
-    bid = read("conterm_basinid.txt")[["STAID", "STANAME", "DRAIN_SQKM", "HCDN-2009", "STATE"]]
-    cls = read("conterm_bas_classif.txt")[["STAID", "CLASS", "AGGECOREGION", "HYDRO_DISTURB_INDX"]]
-    return bid.merge(cls, on="STAID", validate="one_to_one")
+def run(cfg: dict, P: dict) -> None: 
+    c = cfg["inputs"]["candidates"]
+    out, ow = P["nldi_out"], c.get("overwrite", False)
+    out.mkdir(parents = True, exist_ok = True)
+    steps = {
+        "sites": lambda: step_sites(out, P["states"], c["states"], ow),
+        "basins": lambda: step_basins(out, c["nldi_pause_s"]),
+        "merge": lambda: step_merge(out, ow),
+        "fires": lambda: step_fires(out, date.fromisoformat(str(c["nifc_since"])), ow),
+        "pairs": lambda: step_pairs(out, P["mtbs"], c["min_pct"], c["wildfire_types"], ow),
 
-
-def step_ref(out: Path = OUT, max_km2: float = MAX_KM2) -> pd.DataFrame:
-    """keep the basins GAGES-II classes as reference (CLASS == Ref, not only HCDN-2009), then those
-    smaller than max_km2 by their NLDI polygon area (the area burned % is computed against).
-    a site not in GAGES-II has no class and is dropped"""
-    pairs = pd.read_csv(out / "fire_basin_pairs_5pct.csv", dtype={"site_no": str, "fire_id": str})
-    pairs["fire_date"] = pd.to_datetime(pairs["fire_date"], format="mixed")
-    basins = gpd.read_file(out / "basins_5pct.gpkg")
-    gii = gagesii_tables()
-
-    b = basins.merge(gii, left_on="site_no", right_on="STAID", how="left").drop(columns="STAID")
-    b["area_pct_diff_gii"] = 100 * (b["area_sqkm"] - b["DRAIN_SQKM"]) / b["DRAIN_SQKM"]
-    print(f"{len(b)} basins with a >= {MIN_PCT}% wildfire: {int(b['CLASS'].notna().sum())} in GAGES-II "
-          f"({b['CLASS'].value_counts().to_dict()}), {int(b['CLASS'].isna().sum())} not in GAGES-II")
-
-    ref = b[b["CLASS"] == "Ref"].reset_index(drop=True)
-    ref_pairs = pairs[pairs["site_no"].isin(ref["site_no"])].merge(
-        ref[["site_no", "STANAME", "DRAIN_SQKM", "area_pct_diff_gii", "HCDN-2009", "AGGECOREGION", "HYDRO_DISTURB_INDX"]],
-        on="site_no")
-    ref.to_file(out / "ref_basins_5pct.gpkg", layer="basins", driver="GPKG")
-    ref_pairs.to_csv(out / "ref_pairs_5pct.csv", index=False)
-
-    small = ref[ref["area_sqkm"] < max_km2].reset_index(drop=True)
-    small_pairs = ref_pairs[ref_pairs["site_no"].isin(small["site_no"])].reset_index(drop=True)
-    tag = f"lt{int(max_km2)}km2"
-    small.to_file(out / f"ref_basins_5pct_{tag}.gpkg", layer="basins", driver="GPKG")
-    small_pairs.to_csv(out / f"ref_pairs_5pct_{tag}.csv", index=False)
-
-    for name, bb, pp in [("reference", ref, ref_pairs), (f"reference < {max_km2:g} km2", small, small_pairs)]:
-        print(f"{name}: {len(bb)} basins, {len(pp)} pairs, {pp.drop_duplicates(['source', 'fire_id']).shape[0]} fires "
-              f"({pp['source'].value_counts().to_dict()})")
-    return small_pairs
-
-
-STEPS = {"sites": step_sites, "basins": step_basins, "merge": step_merge,
-         "fires": step_fires, "pairs": step_pairs, "ref": step_ref}
-
-if __name__ == "__main__":
-    asked = sys.argv[1:]
-    if not asked or any(s not in STEPS for s in asked):
-        sys.exit(f"name the steps to run, in order, from: {' '.join(STEPS)}")
-    for s in asked:
-        print(f"== {s}")
-        STEPS[s]()
+    for s in c["steps"]: 
+        print()

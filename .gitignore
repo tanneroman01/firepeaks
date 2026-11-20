@@ -13,3 +13,6 @@ cache/
 # Data: regenerable or re-downloadable
 outputs/
 inputs/gagesii_sept2011/
+
+# local secrets
+.env
